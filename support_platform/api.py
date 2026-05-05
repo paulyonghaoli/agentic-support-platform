@@ -4,15 +4,26 @@ import tempfile
 from pathlib import Path
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi.responses import FileResponse
 
 from support_platform.orchestrator import get_orchestrator
 from support_platform.schemas import SupportRequest, SupportResponse
+
+_WEB_DIR = Path(__file__).parent / "web"
 
 app = FastAPI(
     title="Agentic Support Platform",
     description="Enterprise-style AI customer support platform with bounded agentic components.",
     version="0.2.0",
 )
+
+
+@app.get("/voice-demo", response_class=FileResponse)
+def voice_demo() -> FileResponse:
+    html_path = _WEB_DIR / "voice_demo.html"
+    if not html_path.exists():
+        raise HTTPException(status_code=404, detail="voice_demo.html not found")
+    return FileResponse(str(html_path), media_type="text/html")
 
 
 @app.get("/health")

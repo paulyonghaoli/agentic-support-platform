@@ -1,0 +1,557 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Agentic Support Platform — Live Voice Demo</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, monospace;
+      background: #0f1117;
+      color: #e1e4e8;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 2rem 1rem;
+    }
+
+    h1 {
+      font-size: 1.4rem;
+      font-weight: 600;
+      letter-spacing: -0.02em;
+      margin-bottom: 0.25rem;
+      color: #f0f6fc;
+    }
+
+    .subtitle {
+      font-size: 0.8rem;
+      color: #8b949e;
+      margin-bottom: 2rem;
+    }
+
+    .card {
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 8px;
+      padding: 1.5rem;
+      width: 100%;
+      max-width: 680px;
+      margin-bottom: 1.25rem;
+    }
+
+    .card-title {
+      font-size: 0.7rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: #8b949e;
+      margin-bottom: 1rem;
+    }
+
+    /* User selector */
+    select {
+      width: 100%;
+      background: #0d1117;
+      border: 1px solid #30363d;
+      border-radius: 6px;
+      color: #e1e4e8;
+      padding: 0.5rem 0.75rem;
+      font-size: 0.875rem;
+      appearance: none;
+      cursor: pointer;
+    }
+    select:focus { outline: 2px solid #388bfd; outline-offset: 1px; }
+
+    /* Mic button */
+    .mic-area {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 1rem;
+    }
+
+    #micBtn {
+      width: 72px;
+      height: 72px;
+      border-radius: 50%;
+      border: 2px solid #388bfd;
+      background: #0d1117;
+      color: #388bfd;
+      font-size: 2rem;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background 0.15s, border-color 0.15s, box-shadow 0.15s;
+      line-height: 1;
+    }
+    #micBtn:hover { background: #161b22; }
+    #micBtn.listening {
+      background: #1a2433;
+      border-color: #f85149;
+      color: #f85149;
+      box-shadow: 0 0 0 6px rgba(248, 81, 73, 0.15);
+      animation: pulse 1.2s infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { box-shadow: 0 0 0 6px rgba(248, 81, 73, 0.15); }
+      50%       { box-shadow: 0 0 0 12px rgba(248, 81, 73, 0.05); }
+    }
+    #micBtn:disabled { opacity: 0.35; cursor: not-allowed; }
+
+    #statusText {
+      font-size: 0.8rem;
+      color: #8b949e;
+      min-height: 1.2em;
+      text-align: center;
+    }
+    #statusText.active { color: #f85149; }
+    #statusText.ok     { color: #3fb950; }
+
+    /* Transcript */
+    #transcript {
+      font-size: 0.875rem;
+      color: #cdd9e5;
+      min-height: 1.5rem;
+      line-height: 1.6;
+      font-style: italic;
+    }
+    #transcript:empty::before { content: "—"; color: #484f58; font-style: normal; }
+
+    /* Response */
+    #answer {
+      font-size: 0.9rem;
+      line-height: 1.7;
+      color: #e1e4e8;
+      white-space: pre-wrap;
+      min-height: 1.5rem;
+    }
+    #answer:empty::before { content: "—"; color: #484f58; }
+
+    /* Badges row */
+    .meta-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      align-items: center;
+      margin-bottom: 1rem;
+    }
+
+    .badge {
+      font-size: 0.7rem;
+      font-weight: 600;
+      padding: 0.2rem 0.5rem;
+      border-radius: 4px;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+    .badge-intent  { background: #1f2d3d; color: #79c0ff; border: 1px solid #1f4369; }
+    .badge-ok      { background: #1b2a1e; color: #3fb950; border: 1px solid #1f4028; }
+    .badge-esc     { background: #2d1a1e; color: #f85149; border: 1px solid #431f24; }
+    .badge-risk-low    { background: #1b2a1e; color: #3fb950; border: 1px solid #1f4028; }
+    .badge-risk-medium { background: #2d2414; color: #d29922; border: 1px solid #3a2e12; }
+    .badge-risk-high   { background: #2d1a1e; color: #f85149; border: 1px solid #431f24; }
+
+    /* Score bars */
+    .scores-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.75rem;
+    }
+    .score-item { display: flex; flex-direction: column; gap: 0.25rem; }
+    .score-label { font-size: 0.7rem; color: #8b949e; }
+    .score-bar-track {
+      height: 5px;
+      background: #21262d;
+      border-radius: 99px;
+      overflow: hidden;
+    }
+    .score-bar-fill {
+      height: 100%;
+      border-radius: 99px;
+      background: #388bfd;
+      transition: width 0.4s ease;
+    }
+    .score-value { font-size: 0.7rem; color: #8b949e; text-align: right; }
+
+    /* Evidence chips */
+    .chips { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+    .chip {
+      font-size: 0.7rem;
+      font-family: monospace;
+      padding: 0.15rem 0.45rem;
+      background: #0d1117;
+      border: 1px solid #30363d;
+      border-radius: 4px;
+      color: #8b949e;
+    }
+
+    /* Proactive signals */
+    .signal-list { list-style: none; display: flex; flex-direction: column; gap: 0.4rem; }
+    .signal-list li {
+      font-size: 0.8rem;
+      padding: 0.4rem 0.6rem;
+      background: #1f2d3d;
+      border-left: 3px solid #388bfd;
+      border-radius: 0 4px 4px 0;
+      color: #79c0ff;
+    }
+
+    /* Session summary */
+    #sessionCard { display: none; }
+    .session-row { display: flex; gap: 1rem; flex-wrap: wrap; }
+    .session-kv { font-size: 0.78rem; }
+    .session-kv span:first-child { color: #8b949e; margin-right: 0.3rem; }
+    .session-kv span:last-child  { color: #e1e4e8; }
+
+    /* Debug / trace */
+    #debugCard { display: none; }
+    .debug-toggle {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      cursor: pointer;
+      user-select: none;
+      font-size: 0.78rem;
+      color: #8b949e;
+    }
+    .debug-toggle input { cursor: pointer; accent-color: #388bfd; }
+
+    #traceList {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 0.3rem;
+      margin-top: 0.75rem;
+      max-height: 260px;
+      overflow-y: auto;
+    }
+    #traceList li {
+      font-size: 0.72rem;
+      font-family: monospace;
+      padding: 0.3rem 0.5rem;
+      background: #0d1117;
+      border: 1px solid #21262d;
+      border-radius: 4px;
+      color: #8b949e;
+    }
+    #traceList li strong { color: #cdd9e5; margin-right: 0.4rem; }
+
+    /* Bottom note */
+    .note {
+      font-size: 0.72rem;
+      color: #484f58;
+      text-align: center;
+      max-width: 480px;
+    }
+
+    .hidden { display: none !important; }
+  </style>
+</head>
+<body>
+  <h1>Agentic Support Platform</h1>
+  <p class="subtitle">Live voice demo — speaks to the bounded agentic pipeline</p>
+
+  <!-- User selector -->
+  <div class="card">
+    <div class="card-title">Demo Account</div>
+    <select id="userSelect">
+      <option value="demo_user_001">demo_user_001 — Alex (Basic 5GB, 96% used, Japan trip in 7 days)</option>
+      <option value="demo_user_002">demo_user_002 — Maria (Family 60GB, 120% overage, bill dispute)</option>
+      <option value="demo_user_003">demo_user_003 — James (Standard 20GB, recent plan change)</option>
+      <option value="demo_user_004">demo_user_004 — Priya (Unlimited+, 4 connectivity tickets)</option>
+      <option value="demo_user_005">demo_user_005 — Tyler (Basic 5GB, Galaxy Watch only)</option>
+    </select>
+  </div>
+
+  <!-- Mic control -->
+  <div class="card">
+    <div class="card-title">Voice Input</div>
+    <div class="mic-area">
+      <button id="micBtn" title="Click to speak">&#127908;</button>
+      <div id="statusText">Click the mic and speak your support request</div>
+    </div>
+  </div>
+
+  <!-- Transcript -->
+  <div class="card">
+    <div class="card-title">Transcript</div>
+    <div id="transcript"></div>
+  </div>
+
+  <!-- Response -->
+  <div class="card" id="responseCard">
+    <div class="card-title">Response</div>
+    <div class="meta-row" id="metaRow"></div>
+    <div id="answer"></div>
+  </div>
+
+  <!-- Eval scores -->
+  <div class="card hidden" id="scoresCard">
+    <div class="card-title">Evaluation</div>
+    <div class="scores-grid" id="scoresGrid"></div>
+  </div>
+
+  <!-- Evidence -->
+  <div class="card hidden" id="evidenceCard">
+    <div class="card-title">Evidence IDs</div>
+    <div class="chips" id="evidenceChips"></div>
+  </div>
+
+  <!-- Proactive signals -->
+  <div class="card hidden" id="signalsCard">
+    <div class="card-title">Proactive Signals</div>
+    <ul class="signal-list" id="signalList"></ul>
+  </div>
+
+  <!-- Session summary -->
+  <div class="card hidden" id="sessionCard">
+    <div class="card-title">Session State</div>
+    <div class="session-row" id="sessionRow"></div>
+  </div>
+
+  <!-- Debug / trace -->
+  <div class="card">
+    <div class="card-title">Debug</div>
+    <label class="debug-toggle">
+      <input type="checkbox" id="debugToggle" />
+      Show execution trace
+    </label>
+    <div id="debugCard" class="hidden">
+      <ul id="traceList"></ul>
+    </div>
+  </div>
+
+  <p class="note">
+    Requires Chrome or Edge (Web Speech API). No audio is sent to the server —
+    speech recognition runs entirely in your browser. The transcript is posted
+    to <code>POST /support</code>, the same pipeline used by the CLI and API.
+  </p>
+
+  <script>
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    const micBtn      = document.getElementById('micBtn');
+    const statusText  = document.getElementById('statusText');
+    const transcript  = document.getElementById('transcript');
+    const answerEl    = document.getElementById('answer');
+    const metaRow     = document.getElementById('metaRow');
+    const scoresCard  = document.getElementById('scoresCard');
+    const scoresGrid  = document.getElementById('scoresGrid');
+    const evidenceCard = document.getElementById('evidenceCard');
+    const evidenceChips = document.getElementById('evidenceChips');
+    const signalsCard = document.getElementById('signalsCard');
+    const signalList  = document.getElementById('signalList');
+    const sessionCard = document.getElementById('sessionCard');
+    const sessionRow  = document.getElementById('sessionRow');
+    const debugToggle = document.getElementById('debugToggle');
+    const debugCard   = document.getElementById('debugCard');
+    const traceList   = document.getElementById('traceList');
+
+    let recognition = null;
+    let lastData = null;
+
+    debugToggle.addEventListener('change', () => {
+      debugCard.classList.toggle('hidden', !debugToggle.checked);
+      if (debugToggle.checked && lastData) renderTrace(lastData.trace || []);
+    });
+
+    if (!SpeechRecognition) {
+      micBtn.disabled = true;
+      statusText.textContent = 'Web Speech API not supported. Use Chrome or Edge.';
+      statusText.classList.add('active');
+    } else {
+      micBtn.addEventListener('click', toggleListening);
+    }
+
+    function toggleListening() {
+      if (recognition) {
+        recognition.stop();
+        return;
+      }
+      recognition = new SpeechRecognition();
+      recognition.lang = 'en-US';
+      recognition.interimResults = true;
+      recognition.maxAlternatives = 1;
+
+      recognition.onstart = () => {
+        micBtn.classList.add('listening');
+        setStatus('Listening…', 'active');
+        transcript.textContent = '';
+      };
+
+      recognition.onresult = (e) => {
+        const latest = Array.from(e.results).map(r => r[0].transcript).join(' ');
+        transcript.textContent = latest;
+      };
+
+      recognition.onerror = (e) => {
+        setStatus('Error: ' + e.error, 'active');
+        cleanup();
+      };
+
+      recognition.onend = () => {
+        const text = transcript.textContent.trim();
+        cleanup();
+        if (text) {
+          callSupport(text);
+        } else {
+          setStatus('No speech detected. Try again.', '');
+        }
+      };
+
+      recognition.start();
+    }
+
+    function cleanup() {
+      if (recognition) { try { recognition.abort(); } catch(_) {} recognition = null; }
+      micBtn.classList.remove('listening');
+    }
+
+    async function callSupport(message) {
+      const userId = document.getElementById('userSelect').value;
+      setStatus('Sending to support pipeline…', '');
+
+      try {
+        const res = await fetch('/support', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message, user_id: userId, debug: true }),
+        });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const data = await res.json();
+        lastData = data;
+        renderResponse(data);
+        speakAnswer(data.answer);
+        setStatus('Done', 'ok');
+      } catch (err) {
+        setStatus('Request failed: ' + err.message, 'active');
+      }
+    }
+
+    function renderResponse(data) {
+      // Badges
+      metaRow.innerHTML = '';
+      metaRow.appendChild(badge(data.intent, 'badge-intent'));
+      if (data.escalation) {
+        metaRow.appendChild(badge('Escalated', 'badge-esc'));
+      } else {
+        metaRow.appendChild(badge('OK', 'badge-ok'));
+      }
+      const risk = (data.evaluation || {}).fallback_risk || 'low';
+      metaRow.appendChild(badge('risk: ' + risk, 'badge-risk-' + risk));
+
+      answerEl.textContent = data.answer || '';
+
+      // Scores
+      const ev = data.evaluation || {};
+      const scoreFields = [
+        ['Groundedness',   ev.groundedness],
+        ['Completeness',   ev.completeness],
+        ['User Success',   ev.user_success_likelihood],
+        ['Safety',         ev.safety_correctness],
+      ];
+      scoresGrid.innerHTML = '';
+      scoreFields.forEach(([label, val]) => {
+        const pct = val != null ? Math.round(val * 100) : 0;
+        scoresGrid.insertAdjacentHTML('beforeend', `
+          <div class="score-item">
+            <div class="score-label">${label}</div>
+            <div class="score-bar-track">
+              <div class="score-bar-fill" style="width:${pct}%"></div>
+            </div>
+            <div class="score-value">${pct}%</div>
+          </div>
+        `);
+      });
+      scoresCard.classList.remove('hidden');
+
+      // Evidence
+      evidenceChips.innerHTML = '';
+      if (data.evidence_ids && data.evidence_ids.length) {
+        data.evidence_ids.forEach(id => {
+          const c = document.createElement('span');
+          c.className = 'chip';
+          c.textContent = id;
+          evidenceChips.appendChild(c);
+        });
+        evidenceCard.classList.remove('hidden');
+      } else {
+        evidenceCard.classList.add('hidden');
+      }
+
+      // Proactive signals
+      signalList.innerHTML = '';
+      if (data.proactive_signals && data.proactive_signals.length) {
+        data.proactive_signals.forEach(s => {
+          const li = document.createElement('li');
+          li.textContent = s;
+          signalList.appendChild(li);
+        });
+        signalsCard.classList.remove('hidden');
+      } else {
+        signalsCard.classList.add('hidden');
+      }
+
+      // Session summary (show after turn 1)
+      const ss = data.session_state_summary;
+      if (ss && ss.turn_count > 1) {
+        sessionRow.innerHTML = '';
+        kv('Turn', ss.turn_count, sessionRow);
+        if (ss.intent) kv('Intent', ss.intent, sessionRow);
+        if (Object.keys(ss.known_slots || {}).length) {
+          kv('Slots', Object.entries(ss.known_slots).map(([k,v]) => k+'='+v).join(', '), sessionRow);
+        }
+        if (ss.missing_slots && ss.missing_slots.length) {
+          kv('Missing', ss.missing_slots.join(', '), sessionRow);
+        }
+        sessionCard.classList.remove('hidden');
+      } else {
+        sessionCard.classList.add('hidden');
+      }
+
+      // Trace
+      if (debugToggle.checked) renderTrace(data.trace || []);
+    }
+
+    function renderTrace(events) {
+      traceList.innerHTML = '';
+      events.forEach(ev => {
+        const li = document.createElement('li');
+        const ts = ev.timestamp ? new Date(ev.timestamp).toISOString().split('T')[1].replace('Z','') : '';
+        li.innerHTML = `<strong>${ev.event_type}</strong>${ev.reason || ''} <span style="float:right;color:#484f58">${ts}</span>`;
+        traceList.appendChild(li);
+      });
+    }
+
+    function badge(text, cls) {
+      const el = document.createElement('span');
+      el.className = 'badge ' + cls;
+      el.textContent = text;
+      return el;
+    }
+
+    function kv(label, value, parent) {
+      const el = document.createElement('div');
+      el.className = 'session-kv';
+      el.innerHTML = `<span>${label}</span><span>${value}</span>`;
+      parent.appendChild(el);
+    }
+
+    function setStatus(msg, cls) {
+      statusText.textContent = msg;
+      statusText.className = cls || '';
+    }
+
+    function speakAnswer(text) {
+      if (!text || !window.speechSynthesis) return;
+      window.speechSynthesis.cancel();
+      const utt = new SpeechSynthesisUtterance(text);
+      utt.rate = 1.05;
+      window.speechSynthesis.speak(utt);
+    }
+  </script>
+</body>
+</html>

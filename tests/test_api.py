@@ -121,3 +121,10 @@ def test_proactive_signals_for_high_usage_account():
     # Should have proactive signals for this account
     assert data.get("proactive_signals") is not None
     assert len(data["proactive_signals"]) > 0
+
+
+def test_voice_demo_returns_html():
+    response = client.get("/voice-demo")
+    assert response.status_code == 200
+    assert "text/html" in response.headers["content-type"]
+    assert b"voice" in response.content.lower()

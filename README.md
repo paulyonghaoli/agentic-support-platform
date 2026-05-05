@@ -330,6 +330,15 @@ agentic-support-platform/
       loaders.py           # Data file loading and evidence parsing
     proactive/
       signals.py           # Account-level proactive detection
+    session/
+      store.py             # In-memory session store with TTL
+      followup.py          # Follow-up detection, slot extraction, intent carry-over
+    voice/
+      speech_to_text.py    # Whisper STT or mock fallback
+      text_to_speech.py    # OpenAI TTS or stub fallback
+      voice_session.py     # Voice pipeline coordinator + CLI entry point
+    web/
+      voice_demo.html      # Browser live-voice demo (Web Speech API -> POST /support)
   data/
     plans.json             # Synthetic plan catalog
     roaming_policies.md    # Roaming add-ons by region
@@ -456,9 +465,112 @@ In scope:
 
 Not in scope:
 - Real customer data or live network integration
-- Multi-turn conversation state (each request is independent)
 - Vector embeddings or semantic search (uses keyword matching)
 - Authentication, rate limiting, or production security controls
 - Fine-tuned models or custom embeddings
 
 The value of this repo is in the **support workflow architecture** — how a team would structure routing, retrieval, diagnostics, escalation, and evaluation in a maintainable, testable system — not in the size of the dataset.
+
+---
+
+## Live Voice Demo
+
+Open `GET /voice-demo` in Chrome or Edge while the server is running. The page uses the browser's built-in **Web Speech API** for speech recognition and **SpeechSynthesis** for playback — no audio is sent to the server.
+
+### Start the server
+
+```bash
+uvicorn support_platform.api:app --reload
+# Then open: http://localhost:8000/voice-demo
+```
+
+### Demo script
+
+| Say | What it exercises |
+| --- | --- |
+| "My data stopped working." | Diagnostic agent asks a follow-up question (missing slot) |
+| "It's an iPhone." | Slot filling — resumes diagnostic without re-asking |
+| "I'm traveling to Japan next week." | Roaming recommendation + proactive signals for demo_user_001 |
+| "Why is my bill higher this month?" | Billing FAQ retrieval |
+| "I want a refund." | Rule-based escalation + escalation badge |
+| "Can you access my neighbor's account?" | Unsupported intent — immediate escalation |
+
+Switch between the five demo accounts in the dropdown to see different proactive signals and account conditions.
+
+### Browser note
+
+Web Speech API is only supported in Chrome and Edge. Firefox and Safari users will see the microphone button disabled. The `/support` API itself works in all browsers and with any HTTP client.
+
+---
+
+## Real-World Failure Walkthroughs
+
+These scenarios show how the system handles degraded conditions without silently failing.
+
+### 1. No OpenAI API key
+
+**What happens:** Every agent has a deterministic fallback path. The intent router uses keyword matching only (no LLM fallback). The diagnostic and recommendation agents use template responses from retrieved evidence. The evaluation agent is fully deterministic and needs no LLM. The voice STT returns a mock transcript based on the audio filename; TTS writes a plain-text stub.
+
+**Effect:** Users get slightly less nuanced answers — but they always get _an_ answer. No 500 errors, no silent empty responses.
+
+### 2. Unknown intent with high ambiguity
+
+**Request:** "Something weird happened with my account."
+
+**What happens:** Keyword matching scores zero on all intents. With an API key, the LLM classifies with low confidence (< 0.3). The escalation agent's `low_confidence` rule triggers. The user receives a polite escalation response with a case reference and expected response time.
+
+**Effect:** Ambiguous requests never produce hallucinated answers — they route to human support.
+
+### 3. Repeated connectivity failures
+
+**Account:** `demo_user_004` (Priya — 4 connectivity tickets in 90 days).
+
+**Request:** "I keep losing signal indoors."
+
+**What happens:** The diagnostic agent runs normally and would produce troubleshooting steps — but the escalation agent reads `connectivity_tickets_last_90d >= 3` from the account and overrides the diagnostic answer with a network-team escalation. The proactive signals module also flags this account independently.
+
+**Effect:** The system detects repeat-failure patterns from account history before the user has to ask again.
+
+---
+
+## Design Tradeoffs
+
+| Decision | Alternative | Why this was chosen |
+| --- | --- | --- |
+| Keyword-first routing with LLM fallback | LLM-only classification | Keeps most requests fast and deterministic; LLM is only called when keywords are ambiguous. Reduces cost and latency for the majority of production traffic. |
+| Deterministic evaluation (no LLM) | LLM-as-judge scoring | Evaluation must be stable and cheap. LLM judges introduce variance, cost per-response, and a circular dependency (the model judges itself). |
+| Rule-based escalation | LLM-based triage | Escalation decisions are binary and consequential. Rules are auditable, testable, and predictable — LLM outputs in escalation paths create liability. |
+| In-memory session store | Redis / database | For a single-server demo, in-memory is zero-dependency and fast. A production system would replace `SessionStore` with Redis using the same interface. |
+| Keyword slot extraction | NER / embeddings | Avoids runtime model dependency for slot filling. Coverage is sufficient for the bounded slot set (device_type, network_type, yes/no) and is trivially testable. |
+
+---
+
+## Known Limitations
+
+1. **Session is per-process.** The in-memory store is lost on server restart. Multiple API workers (e.g., `--workers 4`) would give each worker separate sessions — sticky routing or an external store would be required.
+
+2. **Intent routing is substring-based.** "change plans" matches `plan_recommendation` even when embedded in "I don't want to change plans." Phrase matching could improve precision.
+
+3. **Slot extraction is English-only.** `_extract_yes_no`, `_extract_device_type`, etc. rely on English keywords. Internationalisation would need per-locale extraction logic or an NLU layer.
+
+4. **Evidence retrieval is keyword hit-count.** Two pieces of evidence with different specificity score equally if they share the same keywords. BM25 or embedding similarity would improve ranking.
+
+5. **TTS output is not streamed.** The voice pipeline synthesizes a complete audio file before responding. For long answers, this adds latency. Streaming TTS (chunked response) would improve perceived responsiveness.
+
+6. **Evaluation scores are heuristics.** Groundedness is measured by evidence ID substring matching in the answer — a model that quotes IDs verbatim would score perfectly even if the answer were wrong. Human evaluation or a separate grounding model would be more robust.
+
+---
+
+## Production Extensions
+
+The architecture is designed so each component can be replaced independently.
+
+| Component | Production replacement |
+| --- | --- |
+| In-memory session store | Redis with the same `SessionStore` interface |
+| Keyword slot extraction | spaCy NER or a fine-tuned slot-filling model |
+| Local file retrieval | Vector store (Pinecone, Weaviate) with BM25 hybrid search |
+| In-process orchestrator | Durable workflow engine (Temporal, Inngest) for retry, timeout, and audit |
+| Synthetic demo accounts | CRM / account API integration |
+| Rule-based evaluation | LLM-as-judge with calibrated rubrics, or human eval via annotation pipeline |
+| Single-worker FastAPI | Gunicorn + uvicorn workers behind a load balancer with Redis session store |
