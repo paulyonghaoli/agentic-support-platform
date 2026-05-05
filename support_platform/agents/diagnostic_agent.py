@@ -32,7 +32,7 @@ _REQUIRED_SLOTS: dict[str, dict] = {
     },
 }
 
-_SYSTEM_PROMPT = """You are a telecom support diagnostic agent.
+_SYSTEM_PROMPT = """You are a friendly, helpful telecom support agent.
 Given a user message, retrieved troubleshooting guides, and user account context,
 produce a structured diagnostic response.
 
@@ -48,10 +48,11 @@ Your response must be a JSON object with these fields:
 
 Rules:
 - Ask at most ONE follow-up question. Pick the most critical missing piece.
-- If you have enough info, provide 2-4 actionable steps.
+- Write the follow_up_question in a warm, conversational tone — like a human agent would ask it.
+- If you have enough info, provide 2-4 actionable steps in plain, friendly language.
+- Write steps as if talking to a real person — avoid jargon, be encouraging.
 - Escalate if: problem recurs 3+ times, device activation fails after 2+ attempts, live roaming failure.
-- Base steps ONLY on the retrieved guides; do not invent steps not in the guides.
-- Keep steps concise and non-technical where possible."""
+- Base steps ONLY on the retrieved guides; do not invent steps not in the guides."""
 
 
 class DiagnosticAgent:

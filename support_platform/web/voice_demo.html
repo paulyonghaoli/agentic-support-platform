@@ -545,10 +545,20 @@
       statusText.className = cls || '';
     }
 
+    function stripMarkdown(text) {
+      return text
+        .replace(/\*\*(.*?)\*\*/g, '$1')
+        .replace(/\*(.*?)\*/g, '$1')
+        .replace(/^#{1,6}\s+/gm, '')
+        .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+        .replace(/`([^`]+)`/g, '$1')
+        .trim();
+    }
+
     function speakAnswer(text) {
       if (!text || !window.speechSynthesis) return;
       window.speechSynthesis.cancel();
-      const utt = new SpeechSynthesisUtterance(text);
+      const utt = new SpeechSynthesisUtterance(stripMarkdown(text));
       utt.rate = 1.05;
       window.speechSynthesis.speak(utt);
     }

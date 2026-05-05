@@ -17,6 +17,7 @@ from support_platform.data.loaders import get_data_store
 from support_platform.proactive.signals import detect_signals
 from support_platform.schemas import (
     EscalationDecision,
+    EvaluationResult,
     Intent,
     SessionStateSummary,
     SupportRequest,
@@ -33,63 +34,100 @@ from support_platform.trace import Tracer
 load_dotenv()
 
 
+# ---------------------------------------------------------------------------
+# Social / greeting detection
+# ---------------------------------------------------------------------------
+
+_GREETING_WORDS = frozenset(["hello", "hi", "hey", "howdy", "hiya", "heya", "greetings", "yo"])
+_CLOSING_WORDS = frozenset(["thanks", "thank", "bye", "goodbye", "cheers", "cya", "later",
+                             "perfect", "great", "awesome", "wonderful", "brilliant"])
+
+
+def _detect_social(message: str) -> str | None:
+    """Returns 'greeting', 'closing', or None."""
+    words = message.lower().strip().rstrip("!?.").split()
+    if len(words) <= 5:
+        word_set = set(words)
+        if word_set & _GREETING_WORDS:
+            return "greeting"
+        if word_set & _CLOSING_WORDS:
+            return "closing"
+    return None
+
+
+def _build_social_answer(social_type: str, account: dict | None) -> str:
+    first_name = ""
+    if account and account.get("name"):
+        first_name = f", {account['name'].split()[0]}"
+    if social_type == "closing":
+        return (
+            f"You're welcome{first_name}! Let me know if there's anything else I can help you with — "
+            "happy to assist anytime."
+        )
+    return (
+        f"Hi{first_name}! I'm SynthTel's virtual support assistant. "
+        "I can help with billing questions, plan changes, roaming add-ons, connectivity issues, "
+        "and device setup. What can I help you with today?"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Answer builders
+# ---------------------------------------------------------------------------
+
 def _build_escalation_answer(escalation: EscalationDecision, user_id: str) -> str:
     case_ref = f"CASE-{user_id.upper()[-8:]}-{int(time.time()) % 100000}"
     return (
-        f"This issue has been escalated to our support team.\n\n"
-        f"**Reason:** {escalation.reason}\n\n"
-        f"Your case reference is **{case_ref}**. "
-        "A support agent will reach out within 1 business day. "
-        "You can also contact us directly via the SynthTel support portal."
+        f"I want to make sure you get the right help here — I'm connecting you with one of our "
+        f"specialists who can sort this out. {escalation.reason} "
+        f"Your case reference is {case_ref}. Someone will be in touch within 1 business day. "
+        "You can also reach us directly through the SynthTel support portal if you need a faster response."
     )
 
 
 def _build_diagnostic_answer(result) -> str:
     if result.follow_up_question:
         return (
-            "To help diagnose your issue, I need a bit more information:\n\n"
-            f"**{result.follow_up_question}**\n\n"
-            "Once I have this, I can walk you through the right troubleshooting steps."
+            f"Sure, I can help with that! Just one quick question — {result.follow_up_question} "
+            "Once I have that, I'll walk you through the right fix."
         )
     if result.diagnostic_steps:
         steps_text = "\n".join(f"{i+1}. {s}" for i, s in enumerate(result.diagnostic_steps))
         return (
-            "Here are the recommended steps to resolve your issue:\n\n"
+            f"Got it — here's what I'd suggest trying:\n\n"
             f"{steps_text}\n\n"
-            "If the issue persists after trying these steps, please contact support for further assistance."
+            "Give those a go and let me know if anything's still not working."
         )
-    return "I wasn't able to identify a specific resolution. A support agent can help you further."
+    return "I wasn't able to pin down the exact cause — let me connect you with a specialist who can dig into this further."
 
 
 def _build_recommendation_answer(result, intent: Intent) -> str:
     topic = "plan" if intent == Intent.PLAN_RECOMMENDATION else "roaming option"
-    lines = [f"Based on your usage and needs, here is the recommended {topic}:\n"]
-    lines.append(f"**Recommended:** {result.recommended_option}")
-    if result.rationale:
-        lines.append(f"\n{result.rationale}")
+    lines = [f"Based on your usage, I'd recommend the {result.recommended_option} — {result.rationale}"]
     if result.alternatives:
         alts = ", ".join(result.alternatives)
-        lines.append(f"\n**Alternatives to consider:** {alts}")
+        lines.append(f"If that doesn't quite fit, {alts} could also work for you.")
     if result.limitations:
         lims = "; ".join(l for l in result.limitations if l.strip())
-        lines.append(f"\n**Important notes:** {lims}")
-    return "\n".join(lines)
+        lines.append(f"One thing to keep in mind: {lims}.")
+    return "\n\n".join(lines)
 
 
 def _build_billing_answer(evidence, account: dict | None) -> str:
     if not evidence:
         return (
-            "For billing questions, please review your itemized bill in MyAccount > Billing > Current Bill. "
-            "If you'd like to dispute a charge, use MyAccount > Billing > Dispute a Charge. "
-            "For charges over $50 or unauthorized charges, a human agent is required."
+            "Happy to help with your billing question! You can check your itemized bill under "
+            "MyAccount > Billing > Current Bill. If something looks off, head to "
+            "Billing > Dispute a Charge to raise it. For charges over $50 or anything that looks "
+            "unauthorized, I'll need to connect you with one of our agents who can action that directly."
         )
     top = evidence[0]
     lines = [l.strip() for l in top.content.split("\n") if l.strip() and not l.startswith("#")]
     excerpt = " ".join(lines[:4])
     return (
-        f"{excerpt}\n\n"
-        "To review your full bill, visit MyAccount > Billing > Current Bill. "
-        "For disputes, use MyAccount > Billing > Dispute a Charge."
+        f"{excerpt} "
+        "You can check the full breakdown in MyAccount > Billing > Current Bill, "
+        "and raise any disputes under Billing > Dispute a Charge."
     )
 
 
@@ -144,6 +182,42 @@ class Orchestrator:
 
         # ── Step 2: Load account context ─────────────────────────────────
         account = self._retrieval.retrieve_account(request.user_id)
+
+        # ── Step 2a: Short-circuit for social / greeting messages ────────
+        social_type = _detect_social(request.message)
+        if social_type:
+            answer = _build_social_answer(social_type, account)
+            proactive_signals = detect_signals(account) if account else []
+            tracer.add("SOCIAL_MESSAGE_DETECTED", f"Returning {social_type} response", type=social_type)
+            tracer.add("RESPONSE_FINALIZED", "Social response returned", agent_path=["social_handler"])
+            self._sessions.update(request.user_id, add_message={"role": "user", "content": request.message})
+            self._sessions.update(request.user_id, add_message={"role": "assistant", "content": answer[:200]})
+            self._sessions.increment_turn(request.user_id)
+            updated_session = self._sessions.get(request.user_id) or {}
+            return SupportResponse(
+                answer=answer,
+                intent="unsupported",
+                agent_path=["social_handler"],
+                evidence_ids=[],
+                escalation=False,
+                escalation_reason=None,
+                evaluation=EvaluationResult(
+                    groundedness=1.0,
+                    completeness=1.0,
+                    user_success_likelihood=0.9,
+                    safety_correctness=1.0,
+                    fallback_risk="low",
+                    latency_category="fast",
+                ),
+                trace=tracer.get_events(),
+                proactive_signals=proactive_signals or None,
+                session_state_summary=SessionStateSummary(
+                    intent=None,
+                    known_slots=updated_session.get("slots", {}),
+                    missing_slots=[],
+                    turn_count=updated_session.get("turn_count", 1),
+                ),
+            )
 
         # ── Step 3: Classify intent ──────────────────────────────────────
         agent_path.append("intent_router")
