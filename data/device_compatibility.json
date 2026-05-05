@@ -1,0 +1,68 @@
+{
+  "smartphones": [
+    {"model": "iPhone 14", "esim": true, "5g": true, "volte": true, "wifi_calling": true, "bands": ["n41", "n77", "n260", "n261"]},
+    {"model": "iPhone 15", "esim": true, "5g": true, "volte": true, "wifi_calling": true, "bands": ["n41", "n77", "n260", "n261"]},
+    {"model": "iPhone 15 Pro", "esim": true, "5g": true, "volte": true, "wifi_calling": true, "bands": ["n41", "n77", "n260", "n261"]},
+    {"model": "Samsung Galaxy S23", "esim": true, "5g": true, "volte": true, "wifi_calling": true, "bands": ["n41", "n77"]},
+    {"model": "Samsung Galaxy A53", "esim": false, "5g": true, "volte": true, "wifi_calling": false, "bands": ["n41"]},
+    {"model": "Pixel 7", "esim": true, "5g": true, "volte": true, "wifi_calling": true, "bands": ["n41", "n77"]},
+    {"model": "Pixel 7 Pro", "esim": true, "5g": true, "volte": true, "wifi_calling": true, "bands": ["n41", "n77"]}
+  ],
+  "wearables": [
+    {
+      "model": "Apple Watch Series 8",
+      "standalone_cellular": true,
+      "requires_paired_phone_plan": true,
+      "esim": true,
+      "activation_notes": "Requires iPhone on same account. Add-on plan required ($10/mo). eSIM provisioned automatically via Watch app.",
+      "known_issues": ["Indoor signal loss if paired iPhone is far away", "eSIM reprovision needed after plan changes"]
+    },
+    {
+      "model": "Apple Watch Ultra",
+      "standalone_cellular": true,
+      "requires_paired_phone_plan": true,
+      "esim": true,
+      "activation_notes": "Same requirements as Series 8. Supports international roaming if phone plan has roaming add-on.",
+      "known_issues": ["eSIM reprovision needed after plan changes"]
+    },
+    {
+      "model": "Samsung Galaxy Watch 5",
+      "standalone_cellular": true,
+      "requires_paired_phone_plan": true,
+      "esim": true,
+      "activation_notes": "Requires Galaxy smartphone on same account. Add-on plan required ($10/mo). Must activate via Galaxy Wearable app.",
+      "known_issues": ["Activation may fail if SIM card on paired phone was recently replaced", "May need manual APN configuration"]
+    },
+    {
+      "model": "Samsung Galaxy Watch 4",
+      "standalone_cellular": true,
+      "requires_paired_phone_plan": true,
+      "esim": true,
+      "activation_notes": "Requires Galaxy smartphone. Activate via Galaxy Wearable app.",
+      "known_issues": ["Activation failure rate higher on older firmware; update watch before activating"]
+    }
+  ],
+  "tablets": [
+    {
+      "model": "iPad Pro (2022)",
+      "cellular": true,
+      "esim": true,
+      "5g": true,
+      "activation_notes": "Can activate as standalone line or tablet add-on ($20/mo).",
+      "known_issues": []
+    },
+    {
+      "model": "Samsung Galaxy Tab S8",
+      "cellular": true,
+      "esim": false,
+      "5g": true,
+      "activation_notes": "Physical SIM only. Add as tablet add-on ($20/mo).",
+      "known_issues": []
+    }
+  ],
+  "unsupported_devices": [
+    "Any device purchased outside the country without local band support",
+    "Devices with CDMA-only radios",
+    "First-generation eSIM devices from before 2018"
+  ]
+}
