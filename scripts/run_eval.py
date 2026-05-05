@@ -147,10 +147,16 @@ EVAL_CASES = [
 
 
 def run_eval(verbose: bool = False) -> dict:
-    orchestrator = Orchestrator()
     results = []
 
+    from support_platform.session.store import get_session_store
+
+    orchestrator = Orchestrator()
+    session_store = get_session_store()
+
     for case in EVAL_CASES:
+        # Clear any prior session for this user so cases are isolated
+        session_store.clear(case["user_id"])
         request = SupportRequest(
             message=case["message"],
             user_id=case["user_id"],

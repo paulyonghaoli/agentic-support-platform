@@ -51,6 +51,13 @@ class SupportRequest(BaseModel):
     debug: bool = False
 
 
+class SessionStateSummary(BaseModel):
+    intent: Optional[str] = None
+    known_slots: dict[str, str] = Field(default_factory=dict)
+    missing_slots: list[str] = Field(default_factory=list)
+    turn_count: int = 0
+
+
 class SupportResponse(BaseModel):
     answer: str
     intent: str
@@ -61,6 +68,7 @@ class SupportResponse(BaseModel):
     evaluation: EvaluationResult
     trace: list[TraceEvent]
     proactive_signals: Optional[list[str]] = None
+    session_state_summary: Optional[SessionStateSummary] = None
 
 
 class DiagnosticResult(BaseModel):

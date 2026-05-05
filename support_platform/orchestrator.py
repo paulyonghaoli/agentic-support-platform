@@ -18,9 +18,16 @@ from support_platform.proactive.signals import detect_signals
 from support_platform.schemas import (
     EscalationDecision,
     Intent,
+    SessionStateSummary,
     SupportRequest,
     SupportResponse,
 )
+from support_platform.session.followup import (
+    apply_intent_carryover,
+    extract_slot_value,
+    is_followup_response,
+)
+from support_platform.session.store import get_session_store
 from support_platform.trace import Tracer
 
 load_dotenv()
@@ -77,7 +84,6 @@ def _build_billing_answer(evidence, account: dict | None) -> str:
             "For charges over $50 or unauthorized charges, a human agent is required."
         )
     top = evidence[0]
-    # Extract a concise answer from the evidence
     lines = [l.strip() for l in top.content.split("\n") if l.strip() and not l.startswith("#")]
     excerpt = " ".join(lines[:4])
     return (
@@ -90,11 +96,12 @@ def _build_billing_answer(evidence, account: dict | None) -> str:
 class Orchestrator:
     """
     Central coordinator for the support pipeline.
-    Flow: intent → retrieval → specialist → escalation → evaluation → response
+    Flow: session → intent → retrieval → specialist → escalation → evaluation → response → session
     """
 
     def __init__(self) -> None:
         self._store = get_data_store()
+        self._sessions = get_session_store()
         client = self._build_openai_client()
 
         self._intent_router = IntentRouter(
@@ -117,6 +124,16 @@ class Orchestrator:
         start = time.time()
         agent_path: list[str] = []
 
+        # ── Step 0: Load session ─────────────────────────────────────────
+        session = self._sessions.get(request.user_id)
+        tracer.add(
+            "SESSION_LOADED",
+            f"Session {'found' if session else 'not found'} for {request.user_id}",
+            user_id=request.user_id,
+            turn_count=(session or {}).get("turn_count", 0),
+            known_slots=list((session or {}).get("slots", {}).keys()),
+        )
+
         # ── Step 1: Receive request ──────────────────────────────────────
         tracer.add(
             "REQUEST_RECEIVED",
@@ -131,12 +148,48 @@ class Orchestrator:
         # ── Step 3: Classify intent ──────────────────────────────────────
         agent_path.append("intent_router")
         intent, confidence = self._intent_router.route(request.message)
+
+        # ── Step 3a: Follow-up + slot filling ────────────────────────────
+        known_slots: dict[str, str] = dict((session or {}).get("slots", {}))
+        followup_detected = False
+
+        if is_followup_response(request.message, session, confidence):
+            followup_detected = True
+            tracer.add(
+                "FOLLOWUP_DETECTED",
+                "Message appears to be a follow-up answer to a previous question",
+                last_missing_slot=(session or {}).get("last_missing_slot"),
+                session_intent=(session or {}).get("last_intent"),
+            )
+            last_missing = (session or {}).get("last_missing_slot")
+            if last_missing:
+                slot_value = extract_slot_value(last_missing, request.message)
+                if slot_value:
+                    known_slots[last_missing] = slot_value
+                    tracer.add(
+                        "SLOT_FILLED",
+                        f"Slot '{last_missing}' filled with value '{slot_value}'",
+                        slot=last_missing,
+                        value=slot_value,
+                    )
+
+        # ── Step 3b: Intent carry-over ────────────────────────────────────
+        intent = apply_intent_carryover(intent, confidence, session)
         tracer.add(
             "INTENT_CLASSIFIED",
             f"Intent '{intent.value}' with confidence {confidence:.2f}",
             intent=intent.value,
             confidence=confidence,
+            followup=followup_detected,
+            carried_over=followup_detected and bool(session and session.get("last_intent")),
         )
+
+        if known_slots:
+            tracer.add(
+                "CONTEXT_APPLIED",
+                f"Applying {len(known_slots)} known slot(s) from session",
+                slots=known_slots,
+            )
 
         # ── Step 4: Retrieve evidence ────────────────────────────────────
         agent_path.append("retrieval_agent")
@@ -163,7 +216,7 @@ class Orchestrator:
             agent_path.append("diagnostic_agent")
             tracer.add("SPECIALIST_SELECTED", "Routing to diagnostic agent", agent="diagnostic_agent")
             diagnostic_result = self._diagnostic.diagnose(
-                request.message, intent, evidence, account
+                request.message, intent, evidence, account, known_slots=known_slots
             )
             if diagnostic_result.missing_slots:
                 tracer.add(
@@ -199,7 +252,6 @@ class Orchestrator:
             answer = _build_billing_answer(evidence, account)
 
         else:
-            # UNSUPPORTED
             tracer.add("SPECIALIST_SELECTED", "Intent is unsupported", agent="escalation_agent")
 
         # ── Step 7: Escalation check ─────────────────────────────────────
@@ -245,6 +297,38 @@ class Orchestrator:
 
         tracer.add("RESPONSE_FINALIZED", f"Response ready for user {request.user_id}", agent_path=agent_path)
 
+        # ── Step 9: Save session ─────────────────────────────────────────
+        self._sessions.update(request.user_id, last_intent=intent.value)
+        if known_slots:
+            self._sessions.update(request.user_id, slots=known_slots)
+        self._sessions.update(request.user_id, last_response=answer)
+        self._sessions.update(
+            request.user_id,
+            add_message={"role": "user", "content": request.message},
+        )
+        self._sessions.update(
+            request.user_id,
+            add_message={"role": "assistant", "content": answer[:200]},
+        )
+
+        # Store last missing slot so next turn can fill it
+        next_missing = (
+            diagnostic_result.missing_slots[0]
+            if diagnostic_result and diagnostic_result.missing_slots
+            else None
+        )
+        self._sessions.update(request.user_id, last_missing_slot=next_missing)
+        self._sessions.increment_turn(request.user_id)
+
+        # Build session summary for response
+        updated_session = self._sessions.get(request.user_id) or {}
+        session_summary = SessionStateSummary(
+            intent=intent.value,
+            known_slots=updated_session.get("slots", {}),
+            missing_slots=diagnostic_result.missing_slots if diagnostic_result else [],
+            turn_count=updated_session.get("turn_count", 1),
+        )
+
         return SupportResponse(
             answer=answer,
             intent=intent.value,
@@ -255,6 +339,7 @@ class Orchestrator:
             evaluation=eval_result,
             trace=tracer.get_events(),
             proactive_signals=proactive_signals if proactive_signals else None,
+            session_state_summary=session_summary,
         )
 
 

@@ -82,9 +82,11 @@ class IntentRouter:
         # Scale: 1 keyword hit ≈ 0.4 confidence, 2+ ≈ ≥0.7
         confidence = min(best_score * 7, 1.0)
 
+        # Zero keyword hits = clearly unsupported; LLM should not override this
+        if confidence == 0.0:
+            return Intent.UNSUPPORTED, 0.0
+
         if confidence >= 0.3 or not self._use_llm:
-            if confidence == 0.0:
-                return Intent.UNSUPPORTED, 0.0
             return best_intent, confidence
 
         # Ambiguous — ask the LLM

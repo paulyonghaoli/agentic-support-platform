@@ -1,6 +1,6 @@
 # Agentic Support Platform
 
-An enterprise-style AI customer support platform built with bounded agentic components, grounded retrieval, structured evaluation, and observable execution traces. Uses a synthetic telecom domain.
+An enterprise-style AI customer support platform built with bounded agentic components, grounded retrieval, structured evaluation, observable execution traces, multi-turn conversational state, and a voice interface. Uses a synthetic telecom domain.
 
 ---
 
@@ -16,6 +16,8 @@ This platform shows how a production-minded engineering team would design an AI 
 - **Evaluation and scoring** — every response is scored on groundedness, completeness, and safety
 - **Execution traces** — structured event log for every request, not hidden chain-of-thought
 - **Proactive signals** — detects account conditions (high data usage, upcoming travel) before the user complains
+- **Multi-turn conversational state** — session-based slot filling and intent carry-over across turns
+- **Voice interface** — speech-to-text + text-to-speech wrapping the same pipeline, not separate logic
 
 ---
 
@@ -340,6 +342,103 @@ agentic-support-platform/
   scripts/
     run_eval.py            # Evaluation harness with aggregate metrics
 ```
+
+---
+
+## Multi-turn Conversations
+
+Each user has a session that persists across requests within the same server process (30-minute TTL, in-memory). The orchestrator loads and saves session state on every turn.
+
+### How it works
+
+**Slot filling:** When the diagnostic agent asks a follow-up question (e.g., "What device are you using?"), the missing slot name is stored in the session. On the next turn, if the message is short or low-confidence, the system detects it as a follow-up answer, extracts the slot value, and resumes the diagnostic without re-asking.
+
+**Intent carry-over:** If a short message has very low intent confidence (e.g., "yes", "iPhone", "it comes and goes"), the system reuses the previous turn's intent rather than classifying the message in isolation.
+
+**Session state in every response:** Each response includes a `session_state_summary`:
+
+```json
+{
+  "intent": "connectivity_troubleshooting",
+  "known_slots": {"device_type": "iPhone"},
+  "missing_slots": ["network_type"],
+  "turn_count": 2
+}
+```
+
+### Example
+
+```
+Turn 1
+  User:   My data stopped working.
+  System: To help diagnose your issue, I need a bit more information:
+          What device are you using, and what does your signal bar show?
+
+Turn 2
+  User:   It's an iPhone.
+  System: Here are the recommended steps to resolve your issue:
+          1. Toggle airplane mode off and on on iPhone to force network re-registration.
+          2. Restart your device.
+          3. Check APN settings are set to 'synthtel.net'.
+```
+
+The second turn detects the short message as a follow-up, fills `device_type = "iPhone"`, carries over the `connectivity_troubleshooting` intent, and produces diagnostic steps — no repeated question.
+
+### Design constraints
+
+- No vector DB or embeddings — slots are extracted with deterministic pattern matching
+- Sessions are per-user, not per-conversation thread
+- Max 10 messages kept in history; sessions expire after 30 minutes
+- The orchestrator never loops — each turn is one bounded pipeline pass
+
+---
+
+## Voice Interface
+
+Voice is a thin wrapper around the existing support pipeline. No logic is duplicated.
+
+```
+audio file
+    │
+    ▼
+speech_to_text.transcribe()          ← OpenAI Whisper or mock fallback
+    │ transcript (plain text)
+    ▼
+orchestrator.handle(SupportRequest)  ← same pipeline as /support
+    │ SupportResponse
+    ▼
+text_to_speech.synthesize()          ← OpenAI TTS or stub fallback
+    │ audio file path
+    ▼
+VoiceResponse (transcript + answer + audio_path + trace)
+```
+
+Both STT and TTS degrade gracefully: if no API key is available, STT returns a mock transcript based on filename, and TTS writes a plain text stub. The support pipeline itself always runs.
+
+### Voice API
+
+```bash
+# Upload audio, get transcript + answer + synthesized audio path
+curl -X POST http://localhost:8000/voice-support \
+  -F "audio=@query.wav" \
+  -F "user_id=demo_user_001"
+```
+
+### Voice CLI
+
+```bash
+python -m support_platform.voice path/to/audio.wav --user demo_user_001
+python -m support_platform.voice path/to/audio.wav --debug   # show trace
+python -m support_platform.voice path/to/audio.wav --json    # raw JSON
+```
+
+### Modules
+
+| File | Role |
+| --- | --- |
+| `voice/speech_to_text.py` | `transcribe(audio_path)` — Whisper API or mock |
+| `voice/text_to_speech.py` | `synthesize(text)` — TTS API or stub |
+| `voice/voice_session.py` | Pipeline coordinator + CLI entry point |
 
 ---
 

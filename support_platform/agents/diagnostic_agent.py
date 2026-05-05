@@ -65,7 +65,10 @@ class DiagnosticAgent:
         intent: Intent,
         evidence: list[Evidence],
         account: dict | None,
+        known_slots: dict[str, str] | None = None,
     ) -> DiagnosticResult:
+        known_slots = known_slots or {}
+
         # Check for mandatory escalation from account history
         if account:
             if account.get("connectivity_tickets_last_90d", 0) >= 3:
@@ -79,9 +82,9 @@ class DiagnosticAgent:
                 )
 
         if self._client is None:
-            return self._deterministic_diagnose(message, intent, evidence, account)
+            return self._deterministic_diagnose(message, intent, evidence, account, known_slots)
 
-        return self._llm_diagnose(message, intent, evidence, account)
+        return self._llm_diagnose(message, intent, evidence, account, known_slots)
 
     def _llm_diagnose(
         self,
@@ -89,16 +92,25 @@ class DiagnosticAgent:
         intent: Intent,
         evidence: list[Evidence],
         account: dict | None,
+        known_slots: dict[str, str] | None = None,
     ) -> DiagnosticResult:
+        known_slots = known_slots or {}
         evidence_text = "\n\n".join(
             f"[{e.id}]\n{e.content[:600]}" for e in evidence
         )
         account_context = _format_account(account)
+        slots_text = (
+            "\n".join(f"- {k}: {v}" for k, v in known_slots.items())
+            if known_slots else "None"
+        )
 
         user_content = f"""User message: {message}
 
 Account context:
 {account_context}
+
+Already known information (do NOT ask for these again):
+{slots_text}
 
 Retrieved troubleshooting guides:
 {evidence_text or "No guides retrieved."}"""
@@ -127,7 +139,7 @@ Retrieved troubleshooting guides:
                 escalation_reason=data.get("escalation_reason"),
             )
         except Exception:
-            return self._deterministic_diagnose(message, intent, evidence, account)
+            return self._deterministic_diagnose(message, intent, evidence, account, known_slots)
 
     def _deterministic_diagnose(
         self,
@@ -135,8 +147,10 @@ Retrieved troubleshooting guides:
         intent: Intent,
         evidence: list[Evidence],
         account: dict | None,
+        known_slots: dict[str, str] | None = None,
     ) -> DiagnosticResult:
         """Rule-based fallback when LLM is unavailable."""
+        slots = known_slots or {}
         msg = message.lower()
 
         # Smartwatch / IoT
@@ -144,7 +158,11 @@ Retrieved troubleshooting guides:
             w in msg for w in ["watch", "smartwatch", "wearable"]
         ):
             missing = []
-            if not any(w in msg for w in ["apple watch", "galaxy watch", "samsung watch"]):
+            has_watch_model = (
+                "watch_model" in slots
+                or any(w in msg for w in ["apple watch", "galaxy watch", "samsung watch"])
+            )
+            if not has_watch_model:
                 missing.append("watch_model")
             if missing:
                 return DiagnosticResult(
@@ -154,11 +172,12 @@ Retrieved troubleshooting guides:
                     confidence=0.4,
                     should_escalate=False,
                 )
+            watch_model = slots.get("watch_model", "your smartwatch")
             return DiagnosticResult(
                 missing_slots=[],
                 follow_up_question=None,
                 diagnostic_steps=[
-                    "Confirm the wearable add-on ($10/month) is active on your account.",
+                    f"Confirm the wearable add-on ($10/month) is active on your account ({watch_model} requires this).",
                     "Open the paired phone app (Watch app or Galaxy Wearable) and navigate to Cellular > Remove Plan > Re-add Plan.",
                     "Restart both the watch and the phone after re-provisioning.",
                     "If activation fails again, contact support — a manual provisioning fix is needed.",
@@ -169,11 +188,12 @@ Retrieved troubleshooting guides:
 
         # Data not working after plan change
         if account and account.get("recent_plan_change"):
+            device = slots.get("device_type", "your device")
             return DiagnosticResult(
                 missing_slots=[],
                 follow_up_question=None,
                 diagnostic_steps=[
-                    "Toggle airplane mode off and on to force network re-registration.",
+                    f"Toggle airplane mode off and on on {device} to force network re-registration.",
                     "Restart your device.",
                     "Check APN settings: it should be set to 'synthtel.net'.",
                     "Wait up to 2 hours after plan activation — provisioning may still be in progress.",
@@ -183,8 +203,25 @@ Retrieved troubleshooting guides:
                 should_escalate=False,
             )
 
-        # Indoor signal
+        # Indoor signal — check if frequency slot is already known
         if "indoor" in msg or "inside" in msg or "home" in msg or "office" in msg:
+            if "frequency" in slots:
+                freq = slots["frequency"]
+                steps = [
+                    "Enable Wi-Fi Calling to bypass cellular for calls and SMS over Wi-Fi.",
+                    "If the issue is constant, check SynthTel coverage map for your address.",
+                ]
+                if freq == "constant":
+                    steps.append("Constant signal loss indoors may indicate a coverage gap — consider escalating to network support.")
+                else:
+                    steps.append("Intermittent loss is often due to device switching between towers — try setting network to LTE-only mode.")
+                return DiagnosticResult(
+                    missing_slots=[],
+                    follow_up_question=None,
+                    diagnostic_steps=steps,
+                    confidence=0.65,
+                    should_escalate=False,
+                )
             return DiagnosticResult(
                 missing_slots=["frequency"],
                 follow_up_question="Is the signal loss constant or does it come and go?",
@@ -193,22 +230,60 @@ Retrieved troubleshooting guides:
                 should_escalate=False,
             )
 
-        # Generic connectivity
+        # Generic connectivity — check if device_type is already known
         if intent == Intent.CONNECTIVITY_TROUBLESHOOTING:
+            still_missing = [
+                s for s in ["device_type", "network_type"]
+                if s not in slots
+            ]
+            if still_missing:
+                if "device_type" in slots:
+                    question = "What does your signal bar show (No Service, LTE, 5G)?"
+                else:
+                    question = "What device are you using, and what does your signal bar show (No Service, LTE, 5G)?"
+                return DiagnosticResult(
+                    missing_slots=still_missing,
+                    follow_up_question=question,
+                    diagnostic_steps=None,
+                    confidence=0.4,
+                    should_escalate=False,
+                )
+            # All slots filled — provide steps
+            device = slots.get("device_type", "your device")
+            network = slots.get("network_type", "")
+            steps = [
+                f"Toggle airplane mode off and on on {device} to force network re-registration.",
+                "Restart your device fully.",
+                "Check APN settings are set to 'synthtel.net'.",
+            ]
+            if network in ("No Service", "No Signal"):
+                steps.append("If showing 'No Service', your SIM may need to be reinserted or replaced.")
             return DiagnosticResult(
-                missing_slots=["device_type", "network_type"],
-                follow_up_question="What device are you using, and what does your signal bar show (No Service, LTE, 5G)?",
-                diagnostic_steps=None,
-                confidence=0.4,
+                missing_slots=[],
+                follow_up_question=None,
+                diagnostic_steps=steps,
+                confidence=0.7,
                 should_escalate=False,
             )
 
         # Fallback
+        if "device_type" not in slots:
+            return DiagnosticResult(
+                missing_slots=["device_type"],
+                follow_up_question="Could you describe your device and the exact issue you're experiencing?",
+                diagnostic_steps=None,
+                confidence=0.3,
+                should_escalate=False,
+            )
         return DiagnosticResult(
-            missing_slots=["device_type"],
-            follow_up_question="Could you describe your device and the exact issue you're experiencing?",
-            diagnostic_steps=None,
-            confidence=0.3,
+            missing_slots=[],
+            follow_up_question=None,
+            diagnostic_steps=[
+                "Toggle airplane mode off and on.",
+                "Restart your device.",
+                "If the issue persists, contact support for further assistance.",
+            ],
+            confidence=0.4,
             should_escalate=False,
         )
 
