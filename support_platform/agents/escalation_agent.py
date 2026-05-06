@@ -26,7 +26,13 @@ def check_escalation(
         )
 
     # 2. User explicitly requests human agent
-    if any(phrase in msg for phrase in ["human agent", "speak to someone", "talk to a person", "real person", "human support"]):
+    if any(phrase in msg for phrase in [
+        "human agent", "speak to someone", "talk to a person", "real person", "human support",
+        "speak to your manager", "speak to a manager", "talk to your manager", "talk to a manager",
+        "speak to your supervisor", "talk to your supervisor", "get your manager",
+        "manager", "supervisor", "escalate this", "escalate to", "want a human",
+        "connect me to", "transfer me", "put me through",
+    ]):
         return EscalationDecision(
             should_escalate=True,
             reason="User explicitly requested human support.",

@@ -192,10 +192,19 @@ def test_extract_short_message_verbatim_fallback():
 # Intent carry-over tests
 # ---------------------------------------------------------------------------
 
-def test_intent_carryover_low_confidence_uses_session():
-    session = {"last_intent": "roaming"}
+def test_intent_carryover_low_confidence_with_missing_slot_uses_session():
+    # Carry-over only fires when there is an active follow-up slot pending
+    session = {"last_intent": "roaming", "last_missing_slot": "current_country"}
     result = apply_intent_carryover(Intent.UNSUPPORTED, confidence=0.1, session=session)
     assert result == Intent.ROAMING
+
+
+def test_intent_carryover_low_confidence_without_missing_slot_keeps_intent():
+    # Without a pending slot, low-confidence messages should NOT carry over
+    # (e.g. "speak to your manager" should stay UNSUPPORTED, not become roaming)
+    session = {"last_intent": "roaming"}
+    result = apply_intent_carryover(Intent.UNSUPPORTED, confidence=0.1, session=session)
+    assert result == Intent.UNSUPPORTED
 
 
 def test_intent_carryover_high_confidence_keeps_new_intent():

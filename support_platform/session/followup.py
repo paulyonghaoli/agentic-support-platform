@@ -29,10 +29,15 @@ def is_followup_response(message: str, session: dict | None, confidence: float) 
 
 def apply_intent_carryover(intent: Intent, confidence: float, session: dict | None) -> Intent:
     """
-    If confidence is low and the session has a prior intent, reuse it.
-    This handles short follow-up messages like "what about roaming?" or "yes".
+    If confidence is low AND there is an active follow-up slot, reuse the prior intent.
+    Requires last_missing_slot so that only genuine in-progress slot-filling exchanges
+    carry over — not arbitrary low-confidence messages like "speak to your manager".
     """
-    if session and confidence < _CARRYOVER_CONFIDENCE_THRESHOLD:
+    if (
+        session
+        and confidence < _CARRYOVER_CONFIDENCE_THRESHOLD
+        and session.get("last_missing_slot")
+    ):
         stored = session.get("last_intent")
         if stored:
             try:
