@@ -142,6 +142,7 @@ class Orchestrator:
         self._sessions = get_session_store()
         client = self._build_openai_client()
 
+        self._client = client
         self._intent_router = IntentRouter(
             client=client,
             use_llm_fallback=os.getenv("USE_LLM_FALLBACK", "true").lower() == "true",
@@ -336,6 +337,7 @@ class Orchestrator:
             diagnostic_result=diagnostic_result,
             recommendation_result=recommendation_result,
             confidence=confidence,
+            client=self._client,
         )
 
         if escalation.should_escalate:

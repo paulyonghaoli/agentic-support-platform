@@ -1,6 +1,53 @@
 from __future__ import annotations
 
+import json
+import os
+from typing import Optional
+
 from support_platform.schemas import EscalationDecision, Intent
+
+# Fallback phrases used when no LLM client is available
+_HUMAN_REQUEST_PHRASES = [
+    "human agent", "speak to someone", "talk to a person", "real person", "human support",
+    "speak to your manager", "speak to a manager", "talk to your manager", "talk to a manager",
+    "speak to your supervisor", "talk to your supervisor", "get your manager",
+    "manager", "supervisor", "escalate this", "escalate to", "want a human",
+    "connect me to", "transfer me", "put me through",
+]
+
+
+def _wants_human(message: str, client) -> bool:
+    """
+    Returns True if the message indicates the user wants a human agent.
+    Uses LLM for flexible understanding when available; falls back to phrase matching.
+    """
+    if client is not None:
+        try:
+            response = client.chat.completions.create(
+                model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
+                messages=[
+                    {
+                        "role": "system",
+                        "content": (
+                            "You are a classifier. Respond only with JSON.\n"
+                            'Return {"wants_human": true} if the user wants to speak with a human agent, '
+                            "manager, or supervisor, or is asking to escalate to a person.\n"
+                            'Return {"wants_human": false} for everything else.'
+                        ),
+                    },
+                    {"role": "user", "content": message},
+                ],
+                temperature=0,
+                max_tokens=20,
+                response_format={"type": "json_object"},
+            )
+            data = json.loads(response.choices[0].message.content)
+            return bool(data.get("wants_human", False))
+        except Exception:
+            pass  # fall through to phrase matching
+
+    msg = message.lower()
+    return any(phrase in msg for phrase in _HUMAN_REQUEST_PHRASES)
 
 
 def check_escalation(
@@ -10,6 +57,7 @@ def check_escalation(
     diagnostic_result=None,
     recommendation_result=None,
     confidence: float = 1.0,
+    client=None,
 ) -> EscalationDecision:
     """
     Rule-based escalation check. Returns an EscalationDecision.
@@ -25,17 +73,11 @@ def check_escalation(
             trigger_rule="unsupported_intent",
         )
 
-    # 2. User explicitly requests human agent
-    if any(phrase in msg for phrase in [
-        "human agent", "speak to someone", "talk to a person", "real person", "human support",
-        "speak to your manager", "speak to a manager", "talk to your manager", "talk to a manager",
-        "speak to your supervisor", "talk to your supervisor", "get your manager",
-        "manager", "supervisor", "escalate this", "escalate to", "want a human",
-        "connect me to", "transfer me", "put me through",
-    ]):
+    # 2. User explicitly requests human agent (LLM signal; phrase-list fallback)
+    if _wants_human(message, client):
         return EscalationDecision(
             should_escalate=True,
-            reason="User explicitly requested human support.",
+            reason="User requested to speak with a human agent.",
             trigger_rule="user_requested_human",
         )
 
