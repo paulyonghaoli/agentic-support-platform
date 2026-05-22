@@ -63,9 +63,14 @@ class SessionStore:
         self._sessions[user_id] = existing
 
     def increment_turn(self, user_id: str) -> None:
-        session = self.get(user_id)
-        count = (session or {}).get("turn_count", 0)
-        self.update(user_id, turn_count=count + 1)
+        # Access _sessions directly to avoid a second TTL check after a long pipeline run.
+        # If the session doesn't exist yet, fall back to update() which initialises it.
+        session = self._sessions.get(user_id)
+        if session is not None:
+            session["turn_count"] = session.get("turn_count", 0) + 1
+            session["timestamp"] = time.time()
+        else:
+            self.update(user_id, turn_count=1)
 
     def clear(self, user_id: str) -> None:
         self._sessions.pop(user_id, None)

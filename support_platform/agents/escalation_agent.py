@@ -4,9 +4,18 @@ import json
 import os
 from typing import Optional
 
+from openai import OpenAI
+
 from support_platform.schemas import EscalationDecision, Intent
 
-# Fallback phrases used when no LLM client is available
+# Broad signal words used to skip the LLM call when there is clearly no human-request intent.
+# If none of these appear, _wants_human returns False immediately with no LLM call.
+_HUMAN_SIGNAL_WORDS = frozenset([
+    "manager", "supervisor", "human", "person", "someone", "agent",
+    "speak", "talk", "transfer", "escalate", "connect", "put me",
+])
+
+# Fallback phrase list used when no LLM client is available
 _HUMAN_REQUEST_PHRASES = [
     "human agent", "speak to someone", "talk to a person", "real person", "human support",
     "speak to your manager", "speak to a manager", "talk to your manager", "talk to a manager",
@@ -16,11 +25,19 @@ _HUMAN_REQUEST_PHRASES = [
 ]
 
 
-def _wants_human(message: str, client) -> bool:
+def _wants_human(message: str, client: Optional[OpenAI]) -> bool:
     """
     Returns True if the message indicates the user wants a human agent.
-    Uses LLM for flexible understanding when available; falls back to phrase matching.
+
+    Fast path: returns False immediately if no rough signal words are present,
+    avoiding any LLM call on the majority of requests.
+    When a signal exists: uses LLM for flexible intent understanding if available,
+    then falls back to exact phrase matching.
     """
+    msg = message.lower()
+    if not any(s in msg for s in _HUMAN_SIGNAL_WORDS):
+        return False
+
     if client is not None:
         try:
             response = client.chat.completions.create(
@@ -46,7 +63,6 @@ def _wants_human(message: str, client) -> bool:
         except Exception:
             pass  # fall through to phrase matching
 
-    msg = message.lower()
     return any(phrase in msg for phrase in _HUMAN_REQUEST_PHRASES)
 
 
@@ -57,11 +73,11 @@ def check_escalation(
     diagnostic_result=None,
     recommendation_result=None,
     confidence: float = 1.0,
-    client=None,
+    client: Optional[OpenAI] = None,
 ) -> EscalationDecision:
     """
     Rule-based escalation check. Returns an EscalationDecision.
-    Deterministic by design — no LLM involved.
+    Rule 2 uses an LLM signal when a client is available; all other rules are deterministic.
     """
     msg = message.lower()
 
@@ -94,8 +110,12 @@ def check_escalation(
                 trigger_rule="billing_action_required",
             )
 
-    # 4. Repeated connectivity failures
-    if account and account.get("connectivity_tickets_last_90d", 0) >= 3:
+    # 4. Repeated connectivity failures (only relevant for connectivity/device intents)
+    if (
+        intent in (Intent.CONNECTIVITY_TROUBLESHOOTING, Intent.DEVICE_IOT_ACTIVATION)
+        and account
+        and account.get("connectivity_tickets_last_90d", 0) >= 3
+    ):
         return EscalationDecision(
             should_escalate=True,
             reason=f"Repeated connectivity issues: {account['connectivity_tickets_last_90d']} tickets in 90 days. Network team review required.",

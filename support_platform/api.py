@@ -57,8 +57,10 @@ async def voice_support(
             tmp_path = tmp.name
 
         from support_platform.voice.voice_session import run_voice_pipeline
-        result = run_voice_pipeline(tmp_path, user_id=user_id, debug=debug)
-        Path(tmp_path).unlink(missing_ok=True)
+        try:
+            result = run_voice_pipeline(tmp_path, user_id=user_id, debug=debug)
+        finally:
+            Path(tmp_path).unlink(missing_ok=True)
         return result
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc

@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import json
+from unittest.mock import MagicMock
+
 import pytest
 
-from support_platform.agents.escalation_agent import check_escalation
+from support_platform.agents.escalation_agent import _wants_human, check_escalation
 from support_platform.schemas import Intent
 
 
@@ -114,3 +117,49 @@ def test_escalation_decision_has_reason_when_escalating():
     decision = check_escalation("Delete my account.", Intent.UNSUPPORTED, account=None)
     assert decision.should_escalate is True
     assert decision.reason is not None
+
+
+def test_manager_request_escalates():
+    decision = check_escalation(
+        "I need to speak to your manager right now.",
+        Intent.BILLING,
+        account=None,
+    )
+    assert decision.should_escalate is True
+    assert decision.trigger_rule == "user_requested_human"
+
+
+def test_repeated_connectivity_only_fires_for_connectivity_intent(demo_account_004):
+    # Rule 4 should NOT fire for billing requests even if account has many tickets
+    decision = check_escalation(
+        "Why is my bill higher this month?",
+        Intent.BILLING,
+        account=demo_account_004,
+    )
+    assert decision.trigger_rule != "repeated_connectivity_failure"
+
+
+def test_wants_human_no_signal_skips_llm():
+    mock_client = MagicMock()
+    result = _wants_human("Why is my bill so high?", mock_client)
+    assert result is False
+    mock_client.chat.completions.create.assert_not_called()
+
+
+def test_wants_human_with_mock_client_returns_true():
+    mock_client = MagicMock()
+    mock_response = MagicMock()
+    mock_response.choices[0].message.content = json.dumps({"wants_human": True})
+    mock_client.chat.completions.create.return_value = mock_response
+
+    result = _wants_human("I'd like to speak to someone who can actually help", mock_client)
+    assert result is True
+    mock_client.chat.completions.create.assert_called_once()
+
+
+def test_wants_human_llm_failure_falls_back_to_phrases():
+    mock_client = MagicMock()
+    mock_client.chat.completions.create.side_effect = Exception("API error")
+
+    result = _wants_human("I want to speak to a human agent", mock_client)
+    assert result is True  # phrase list catches "human agent"

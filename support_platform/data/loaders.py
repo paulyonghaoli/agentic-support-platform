@@ -36,11 +36,21 @@ class DataStore:
         self._billing_evidence = _parse_evidence_blocks(self.billing_faq_text)
         self._escalation_evidence = _parse_evidence_blocks(self.escalation_policy_text)
 
+        # Cache concatenated evidence list — built once, reused on every retrieval call
+        self._evidence_cache: list[dict] = (
+            self._roaming_evidence
+            + self._troubleshooting_evidence
+            + self._billing_evidence
+            + self._escalation_evidence
+        )
+
+        # O(1) account lookup by user_id
+        self._accounts_by_id: dict[str, dict] = {
+            acc["user_id"]: acc for acc in self.accounts
+        }
+
     def get_account(self, user_id: str) -> dict | None:
-        for acc in self.accounts:
-            if acc["user_id"] == user_id:
-                return acc
-        return None
+        return self._accounts_by_id.get(user_id)
 
     def get_plan(self, plan_id: str) -> dict | None:
         for plan in self.plans:
@@ -65,12 +75,7 @@ class DataStore:
         return results[:5]
 
     def _all_evidence(self) -> list[dict]:
-        return (
-            self._roaming_evidence
-            + self._troubleshooting_evidence
-            + self._billing_evidence
-            + self._escalation_evidence
-        )
+        return self._evidence_cache
 
 
 def _parse_evidence_blocks(text: str) -> list[dict]:

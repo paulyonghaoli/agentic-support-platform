@@ -128,3 +128,11 @@ def test_voice_demo_returns_html():
     assert response.status_code == 200
     assert "text/html" in response.headers["content-type"]
     assert b"voice" in response.content.lower()
+
+
+def test_greeting_returns_friendly_response_without_escalation():
+    response = client.post("/support", json={"message": "hello", "user_id": "demo_user_001"})
+    assert response.status_code == 200
+    data = response.json()
+    assert data["escalation"] is False
+    assert any(w in data["answer"].lower() for w in ["hi", "hello", "help"])
