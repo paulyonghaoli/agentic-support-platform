@@ -82,8 +82,11 @@ class IntentRouter:
         # Scale: 1 keyword hit ≈ 0.4 confidence, 2+ ≈ ≥0.7
         confidence = min(best_score * 7, 1.0)
 
-        # Zero keyword hits = clearly unsupported; LLM should not override this
         if confidence == 0.0:
+            # Zero keyword hits: keyword matching failed, not necessarily unsupported.
+            # Let the LLM decide if available; only hard-return unsupported without one.
+            if self._use_llm:
+                return self._llm_classify(message)
             return Intent.UNSUPPORTED, 0.0
 
         if confidence >= 0.3 or not self._use_llm:
