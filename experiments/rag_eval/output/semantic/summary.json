@@ -1,0 +1,32 @@
+{
+  "records_evaluated": 12,
+  "metrics": {
+    "faithfulness": {
+      "mean": 0.3055,
+      "std": 0.232,
+      "n": 12
+    },
+    "relevance": {
+      "mean": 0.2638,
+      "std": 0.1113,
+      "n": 12
+    },
+    "precision": {
+      "mean": 0.4167,
+      "std": 0.3602,
+      "n": 12
+    },
+    "context_relevance": {
+      "mean": 0.3168,
+      "std": 0.0793,
+      "n": 12
+    },
+    "recall": {
+      "mean": 0.1333,
+      "std": 0.2082,
+      "n": 10
+    }
+  },
+  "quality_gates": null,
+  "passed": null
+}
