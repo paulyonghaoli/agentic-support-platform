@@ -31,7 +31,7 @@ from support_platform.session.followup import (
 from support_platform.session.store import get_session_store
 from support_platform.trace import Tracer
 
-load_dotenv()
+load_dotenv(override=True)
 
 
 # ---------------------------------------------------------------------------
