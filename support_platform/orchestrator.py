@@ -56,9 +56,8 @@ def _detect_social(message: str) -> str | None:
 
 
 def _build_social_answer(social_type: str, account: dict | None) -> str:
-    first_name = ""
-    if account and account.get("name"):
-        first_name = f", {account['name'].split()[0]}"
+    parts = (account.get("name") or "").split() if account else []
+    first_name = f", {parts[0]}" if parts else ""
     if social_type == "closing":
         return (
             f"You're welcome{first_name}! Let me know if there's anything else I can help you with — "
@@ -374,26 +373,23 @@ class Orchestrator:
         tracer.add("RESPONSE_FINALIZED", f"Response ready for user {request.user_id}", agent_path=agent_path)
 
         # ── Step 9: Save session ─────────────────────────────────────────
-        self._sessions.update(request.user_id, last_intent=intent.value)
-        if known_slots:
-            self._sessions.update(request.user_id, slots=known_slots)
-        self._sessions.update(request.user_id, last_response=answer)
+        next_missing = (
+            diagnostic_result.missing_slots[0]
+            if diagnostic_result and diagnostic_result.missing_slots
+            else None
+        )
         self._sessions.update(
             request.user_id,
+            last_intent=intent.value,
+            slots=known_slots,
+            last_response=answer,
+            last_missing_slot=next_missing,
             add_message={"role": "user", "content": request.message},
         )
         self._sessions.update(
             request.user_id,
             add_message={"role": "assistant", "content": answer[:200]},
         )
-
-        # Store last missing slot so next turn can fill it
-        next_missing = (
-            diagnostic_result.missing_slots[0]
-            if diagnostic_result and diagnostic_result.missing_slots
-            else None
-        )
-        self._sessions.update(request.user_id, last_missing_slot=next_missing)
         self._sessions.increment_turn(request.user_id)
 
         # Build session summary for response

@@ -15,6 +15,11 @@ _HUMAN_SIGNAL_WORDS = frozenset([
     "speak", "talk", "transfer", "escalate", "connect", "put me",
 ])
 
+_BILLING_ACTION_PHRASES = [
+    "refund", "credit", "dispute", "waive", "remove charge",
+    "unauthorized", "cancel", "billing date", "wrong charge",
+]
+
 # Fallback phrase list used when no LLM client is available
 _HUMAN_REQUEST_PHRASES = [
     "human agent", "speak to someone", "talk to a person", "real person", "human support",
@@ -99,11 +104,7 @@ def check_escalation(
 
     # 3. Account-specific billing action required
     if intent == Intent.BILLING:
-        billing_action_phrases = [
-            "refund", "credit", "dispute", "waive", "remove charge",
-            "unauthorized", "cancel", "billing date", "wrong charge",
-        ]
-        if any(p in msg for p in billing_action_phrases):
+        if any(p in msg for p in _BILLING_ACTION_PHRASES):
             return EscalationDecision(
                 should_escalate=True,
                 reason="Billing action requires a human agent (refund, dispute, or unauthorized charge).",
@@ -142,7 +143,7 @@ def check_escalation(
             )
 
     # 7. Live roaming failure (user is currently abroad and can't connect)
-    if intent == Intent.CONNECTIVITY_TROUBLESHOOTING or intent == Intent.ROAMING:
+    if intent in (Intent.CONNECTIVITY_TROUBLESHOOTING, Intent.ROAMING):
         abroad_phrases = ["currently abroad", "i'm in", "right now in", "can't connect here", "already traveling"]
         roaming_fail_phrases = ["roaming not working", "can't use data abroad", "no signal abroad"]
         if any(p in msg for p in abroad_phrases + roaming_fail_phrases):

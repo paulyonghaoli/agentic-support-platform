@@ -44,19 +44,19 @@ class DataStore:
             + self._escalation_evidence
         )
 
-        # O(1) account lookup by user_id
+        # O(1) lookups by ID
         self._accounts_by_id: dict[str, dict] = {
             acc["user_id"]: acc for acc in self.accounts
+        }
+        self._plans_by_id: dict[str, dict] = {
+            p["plan_id"]: p for p in self.plans
         }
 
     def get_account(self, user_id: str) -> dict | None:
         return self._accounts_by_id.get(user_id)
 
     def get_plan(self, plan_id: str) -> dict | None:
-        for plan in self.plans:
-            if plan["plan_id"] == plan_id:
-                return plan
-        return None
+        return self._plans_by_id.get(plan_id)
 
     def search_evidence(self, keywords: list[str], sources: list[str] | None = None) -> list[dict]:
         """Return evidence blocks that match any keyword, filtered by source list."""
