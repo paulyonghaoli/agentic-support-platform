@@ -4,7 +4,8 @@
       "PowerShell(Get-Command py 2>$null)",
       "PowerShell(Get-Command uv -ErrorAction SilentlyContinue)",
       "PowerShell(uv --version)",
-      "PowerShell($uvPath = \"C:\\\\Users\\\\paull\\\\.local\\\\bin\\\\uv.exe\"; if \\(Test-Path $uvPath\\) { & $uvPath --version } else { \"not found at expected path\" }; $roamingUv = \"C:\\\\Users\\\\paull\\\\AppData\\\\Roaming\\\\uv\\\\uv.exe\"; if \\(Test-Path $roamingUv\\) { & $roamingUv --version } else { \"not at roaming path either\" })"
+      "PowerShell($uvPath = \"C:\\\\Users\\\\paull\\\\.local\\\\bin\\\\uv.exe\"; if \\(Test-Path $uvPath\\) { & $uvPath --version } else { \"not found at expected path\" }; $roamingUv = \"C:\\\\Users\\\\paull\\\\AppData\\\\Roaming\\\\uv\\\\uv.exe\"; if \\(Test-Path $roamingUv\\) { & $roamingUv --version } else { \"not at roaming path either\" })",
+      "Bash(gh pr *)"
     ]
   }
 }
